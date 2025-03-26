@@ -1,1 +1,1 @@
-# Fuck Spaceship[link](https://www.spaceship.com)
+# [Fuck Spaceship](https://www.spaceship.com)
