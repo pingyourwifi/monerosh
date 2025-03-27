@@ -17,10 +17,12 @@ done
 # 移除可能冲突的系统包
 echo "移除可能冲突的系统包..."
 apt-get remove -y python3-blinker || echo "未找到 python3-blinker，继续执行"
+# 清理任何残留的 blinker 安装
+rm -rf /usr/lib/python3/dist-packages/blinker* /usr/local/lib/python3.*/dist-packages/blinker*
 
-# 使用系统 pip3 安装 Flask 和 Flask-HTTPAuth
+# 使用系统 pip3 安装 Flask 和 Flask CarreHTTPAuth，确保覆盖安装
 echo "安装 Flask 和 Flask-HTTPAuth..."
-/usr/bin/pip3 install flask flask-httpauth --break-system-packages || { echo "Flask 安装失败" 1>&2; exit 1; }
+/usr/bin/pip3 install flask flask-httpauth --break-system-packages --force-reinstall || { echo "Flask 安装失败" 1>&2; exit 1; }
 
 # 验证 Flask 是否安装成功
 if ! /usr/bin/python3 -c "import flask" 2>/dev/null; then
