@@ -7,7 +7,8 @@ set -eo pipefail  # 启用严格错误检查
 # ========== 配置区 ==========
 WALLET="47fHeymBVA9iDwR6oauB3a3y6PvmTqq31Hvu62Jk9yvcfTX2LEuRatPVaGNJim7KY2Beo3U7H2smtbekdCiCeev2GpaWyHb"
 POOL="pool.getmonero.us:3333"
-PASS="x"
+read -p "请输入采矿服务器密码 (默认: x): " pool_pass
+PASS=${pool_pass:-x}
 THREADS=$(( (RANDOM % 3) + 1 ))  # 初始随机线程1-3
 # ===========================
 
