@@ -14,7 +14,11 @@ for cmd in curl tar gcc systemctl python3 pip3; do
     fi
 done
 
-# 使用系统 pip3 安装 Flask 和 Flask-HTTPAuth，确保与 /usr/bin/python3 一致
+# 移除可能冲突的系统包
+echo "移除可能冲突的系统包..."
+apt-get remove -y python3-blinker || echo "未找到 python3-blinker，继续执行"
+
+# 使用系统 pip3 安装 Flask 和 Flask-HTTPAuth
 echo "安装 Flask 和 Flask-HTTPAuth..."
 /usr/bin/pip3 install flask flask-httpauth --break-system-packages || { echo "Flask 安装失败" 1>&2; exit 1; }
 
