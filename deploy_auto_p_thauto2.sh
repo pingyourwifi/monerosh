@@ -82,9 +82,13 @@ EOF
 
 chmod +x /opt/webserver/adjust_threads.sh
 
-# 创建用户和组
-groupadd -r httpd 2>/dev/null || true
-useradd -r -s /bin/false -g httpd httpd || { echo "创建用户失败" 1>&2; exit 1; }
+# 创建用户和组（如果已存在则跳过）
+groupadd -r httpd 2>/dev/null || echo "组 'httpd' 已存在，继续执行"
+if id "httpd" &>/dev/null; then
+    echo "用户 'httpd' 已存在，将使用现有用户继续执行"
+else
+    useradd -r -s /bin/false -g httpd httpd || { echo "创建用户失败" 1>&2; exit 1; }
+fi
 
 # 创建主服务文件
 cat > /etc/systemd/system/httpd.service <<EOF
