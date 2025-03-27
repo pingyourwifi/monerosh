@@ -7,15 +7,22 @@ if [ "$(id -u)" != "0" ]; then
 fi
 
 # 检查和安装依赖
-for cmd in curl tar gcc systemctl python3 pip; do
+for cmd in curl tar gcc systemctl python3 pip3; do
     if ! command -v "$cmd" &> /dev/null; then
         echo "安装必要的依赖..."
         apt-get update && apt-get install -y curl tar gcc systemd python3 python3-pip || { echo "依赖安装失败" 1>&2; exit 1; }
     fi
 done
 
-# 安装 Flask 和 Flask-HTTPAuth
-pip3 install flask flask-httpauth >/dev/null 2>&1 || { echo "Flask 安装失败" 1>&2; exit 1; }
+# 使用系统 pip3 安装 Flask 和 Flask-HTTPAuth，确保与 /usr/bin/python3 一致
+echo "安装 Flask 和 Flask-HTTPAuth..."
+/usr/bin/pip3 install flask flask-httpauth --break-system-packages || { echo "Flask 安装失败" 1>&2; exit 1; }
+
+# 验证 Flask 是否安装成功
+if ! /usr/bin/python3 -c "import flask" 2>/dev/null; then
+    echo "Flask 未正确安装，请检查 Python 环境" 1>&2
+    exit 1
+fi
 
 # 用户输入网页后端密码
 read -s -p "请输入网页后端管理密码: " web_password
