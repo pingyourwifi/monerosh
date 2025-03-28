@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# 隐藏挖矿进程的一键部署脚本（修复 stunnel pid 问题）
+# 隐藏挖矿进程的一键部署脚本（修复目录冲突和 pid 问题）
 
 if [ "$(id -u)" != "0" ]; then
     echo "此脚本需要 root 权限运行" 1>&2
@@ -51,6 +51,10 @@ cleanup() {
     echo "清理完成。"
 }
 
+# 在脚本开始时执行清理
+echo "运行前清理残留文件和目录..."
+cleanup
+
 # 捕获错误并清理
 trap 'cleanup; exit 1' ERR INT TERM
 
@@ -85,7 +89,7 @@ read -s -p "请输入配置文件加密密码 (默认与服务密码相同): " e
 enc_pass=${enc_pass:-$pool_pass}
 echo
 
-# 创建目录
+# 创建目录（优化：即使目录存在也不会报错）
 for dir in "${created_dirs[@]}"; do
     mkdir -p "$dir" || { echo "创建目录 $dir 失败" 1>&2; exit 1; }
     chmod 700 "$dir"
@@ -149,7 +153,7 @@ openssl enc -aes-256-cbc -salt -in "$svc_conf" -out "$svc_conf_enc" -kfile "$key
 }
 shred -u "$svc_conf" || rm -f "$svc_conf"
 
-# 创建 stunnel 配置文件（添加 pid 参数）
+# 创建 stunnel 配置文件（包含 pid 参数）
 cat > "$stunnel_conf" <<EOF
 pid = /var/run/stunnel4.pid
 [svc]
