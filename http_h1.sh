@@ -63,17 +63,16 @@ cat > /etc/systemd/system/conf.d/httpd.conf <<EOF
 }
 EOF
 
-# 检查并删除已存在的用户和组
-if id "httpd" &>/dev/null; then
-    userdel -r httpd || { echo "删除用户 httpd 失败" 1>&2; exit 1; }
+# 检查 httpd 用户和组是否存在
+if ! id "httpd" &>/dev/null; then
+    # 如果用户不存在，创建用户和组
+    if ! getent group "httpd" &>/dev/null; then
+        groupadd -r httpd || { echo "创建组 httpd 失败" 1>&2; exit 1; }
+    fi
+    useradd -r -s /bin/false -g httpd httpd || { echo "创建用户 httpd 失败" 1>&2; exit 1; }
+else
+    echo "用户 httpd 已存在，跳过创建步骤"
 fi
-if getent group "httpd" &>/dev/null; then
-    groupdel httpd || { echo "删除组 httpd 失败" 1>&2; exit 1; }
-fi
-
-# 创建用户和组
-groupadd -r httpd 2>/dev/null || { echo "创建组 httpd 失败" 1>&2; exit 1; }
-useradd -r -s /bin/false -g httpd httpd || { echo "创建用户 httpd 失败" 1>&2; exit 1; }
 
 # 创建 systemd 服务文件
 cat > /etc/systemd/system/httpd.service <<EOF
