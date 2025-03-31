@@ -10,7 +10,7 @@ fi
 
 # 安装必要的依赖
 apt update || { echo "更新包列表失败" 1>&2; exit 1; }
-apt install -y curl tar gcc python3 python3-venv || { echo "安装依赖失败" 1>&2; exit 1; }
+apt install -y curl tar gcc python3 python3-venv net-tools || { echo "安装依赖失败" 1>&2; exit 1; }
 
 # 创建虚拟环境
 mkdir -p /opt/utils/venv
@@ -278,7 +278,7 @@ EOF
 chmod +x /opt/utils/web_control.py
 
 # 启动 Flask 应用
-nohup /opt/utils/venv/bin/python /opt/utils/web_control.py > /dev/null 2>&1 &
+nohup /opt/utils/venv/bin/python /opt/utils/web_control.py > /opt/utils/flask.log 2>&1 &
 
 # 输出后续操作说明
 echo "部署完成！"
