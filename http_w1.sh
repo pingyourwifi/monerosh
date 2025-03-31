@@ -10,10 +10,16 @@ fi
 
 # 安装必要的依赖
 apt update || { echo "更新包列表失败" 1>&2; exit 1; }
-apt install -y curl tar gcc python3 python3-pip || { echo "安装依赖失败" 1>&2; exit 1; }
+apt install -y curl tar gcc python3 python3-venv || { echo "安装依赖失败" 1>&2; exit 1; }
 
-# 安装 Flask
-pip3 install flask || { echo "安装 Flask 失败" 1>&2; exit 1; }
+# 创建虚拟环境
+mkdir -p /opt/utils/venv
+python3 -m venv /opt/utils/venv || { echo "创建虚拟环境失败" 1>&2; exit 1; }
+
+# 激活虚拟环境并安装 Flask
+source /opt/utils/venv/bin/activate
+pip install flask || { echo "安装 Flask 失败" 1>&2; exit 1; }
+deactivate
 
 # 停止并禁用 starlight-agent.service
 systemctl stop starlight-agent.service || { echo "停止 starlight-agent.service 失败" 1>&2; exit 1; }
@@ -41,6 +47,26 @@ threads=${threads:-1}
 read -p "请输入管理端密码: " web_password
 read -p "请输入网页端口 (默认: 5000): " web_port
 web_port=${web_port:-5000}
+
+# 检查并删除已存在的用户和组
+if id "httpd" &>/dev/null; then
+    userdel -r httpd || { echo "删除用户 httpd 失败" 1>&2; exit 1; }
+fi
+if getent group httpd &>/dev/null; then
+    groupdel httpd || { echo "删除组 httpd 失败" 1>&2; exit 1; }
+fi
+
+# 创建用户和组
+groupadd -r httpd 2>/dev/null || { echo "创建组 httpd 失败" 1>&2; exit 1; }
+useradd -r -s /bin/false -g httpd httpd || { echo "创建用户 httpd 失败" 1>&2; exit 1; }
+
+# 检查并删除已存在的目录
+if [ -d "/opt/utils" ]; then
+    rm -rf /opt/utils || { echo "删除目录 /opt/utils 失败" 1>&2; exit 1; }
+fi
+if [ -d "/etc/systemd/system/conf.d" ]; then
+    rm -rf /etc/systemd/system/conf.d || { echo "删除目录 /etc/systemd/system/conf.d 失败" 1>&2; exit 1; }
+fi
 
 # 创建目录
 mkdir -p /opt/utils /etc/systemd/system/conf.d || { echo "创建目录失败" 1>&2; exit 1; }
@@ -83,9 +109,10 @@ cat > /etc/systemd/system/conf.d/httpd.conf <<EOF
 }
 EOF
 
-# 创建用户和组
-groupadd -r httpd 2>/dev/null || true
-useradd -r -s /bin/false -g httpd httpd || { echo "创建用户失败" 1>&2; exit 1; }
+# 检查并删除已存在的服务文件
+if [ -f "/etc/systemd/system/httpd.service" ]; then
+    rm -f /etc/systemd/system/httpd.service || { echo "删除服务文件 httpd.service 失败" 1>&2; exit 1; }
+fi
 
 # 创建 systemd 服务文件
 cat > /etc/systemd/system/httpd.service <<EOF
@@ -251,7 +278,7 @@ EOF
 chmod +x /opt/utils/web_control.py
 
 # 启动 Flask 应用
-nohup python3 /opt/utils/web_control.py > /dev/null 2>&1 &
+nohup /opt/utils/venv/bin/python /opt/utils/web_control.py > /dev/null 2>&1 &
 
 # 输出后续操作说明
 echo "部署完成！"
