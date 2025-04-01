@@ -93,7 +93,12 @@ echo "删除 rsyslog 配置文件..."
 rm -rf /etc/rsyslog.conf
 rm -rf /etc/rsyslog.d
 
-# 配置 systemd-journald 禁用所有日志
+# 禁用并屏蔽 systemd-journald
+echo "禁用并屏蔽 systemd-journald..."
+systemctl disable systemd-journald.service 2>/dev/null
+systemctl mask systemd-journald.service 2>/dev/null
+
+# 配置 systemd-journald 禁用所有日志（即使服务被强制重启）
 echo "配置 systemd-journald 禁用日志..."
 cat <<EOF > /etc/systemd/journald.conf
 [Journal]
@@ -104,8 +109,18 @@ ForwardToConsole=no
 ForwardToWall=no
 MaxLevelStore=0
 MaxLevelSyslog=0
+RuntimeMaxUse=0
+SystemMaxUse=0
 EOF
-systemctl restart systemd-journald 2>/dev/null
+
+# 覆盖 systemd-journald 服务文件，防止日志生成
+echo "覆盖 systemd-journald 服务文件..."
+mkdir -p /etc/systemd/system/systemd-journald.service.d
+cat <<EOF > /etc/systemd/system/systemd-journald.service.d/override.conf
+[Service]
+ExecStart=
+ExecStart=/bin/true
+EOF
 
 # 清除所有现有日志文件
 echo "清除 /var/log 下的所有日志..."
@@ -115,7 +130,7 @@ rm -rf /var/log/*
 echo "锁定 /var/log 目录..."
 mkdir -p /var/log
 chmod 000 /var/log
-chattr +i /var/log  # 设置不可变属性，防止修改
+chattr +i /var/log  # 设置不可变属性
 
 # 4. 重新加载 systemd 配置
 echo "重新加载 systemd 配置..."
