@@ -72,31 +72,58 @@ apt autoremove -y 2>/dev/null
 # rm -f /lib/systemd/system/ModemManager.service
 # apt purge modemmanager -y 2>/dev/null
 
-# 3. 禁用日志生成
-echo "禁用系统日志生成..."
+# 3. 清除现有日志并禁用日志生成
+echo "清除现有日志并禁用所有日志生成..."
 
-# 停止并禁用 rsyslog.service 和 syslog.socket
-echo "停止并禁用 rsyslog 和 syslog.socket..."
+# 停止日志相关服务
+echo "停止 rsyslog 和 systemd-journald 服务..."
 systemctl stop rsyslog.service 2>/dev/null
 systemctl stop syslog.socket 2>/dev/null
+systemctl stop systemd-journald.service 2>/dev/null
+
+# 禁用并屏蔽日志服务
+echo "禁用并屏蔽 rsyslog 和 syslog.socket..."
 systemctl disable rsyslog.service 2>/dev/null
 systemctl disable syslog.socket 2>/dev/null
-# 可选：屏蔽服务和 socket
 systemctl mask rsyslog.service 2>/dev/null
 systemctl mask syslog.socket 2>/dev/null
 
-# 配置 systemd-journald 禁用日志存储
+# 删除 rsyslog 配置文件
+echo "删除 rsyslog 配置文件..."
+rm -rf /etc/rsyslog.conf
+rm -rf /etc/rsyslog.d
+
+# 配置 systemd-journald 禁用所有日志
 echo "配置 systemd-journald 禁用日志..."
-sed -i 's/#Storage=auto/Storage=none/' /etc/systemd/journald.conf
+cat <<EOF > /etc/systemd/journald.conf
+[Journal]
+Storage=none
+ForwardToSyslog=no
+ForwardToKMsg=no
+ForwardToConsole=no
+ForwardToWall=no
+MaxLevelStore=0
+MaxLevelSyslog=0
+EOF
 systemctl restart systemd-journald 2>/dev/null
+
+# 清除所有现有日志文件
+echo "清除 /var/log 下的所有日志..."
+rm -rf /var/log/*
+
+# 创建空目录并设置只读权限，防止日志写入
+echo "锁定 /var/log 目录..."
+mkdir -p /var/log
+chmod 000 /var/log
+chattr +i /var/log  # 设置不可变属性，防止修改
 
 # 4. 重新加载 systemd 配置
 echo "重新加载 systemd 配置..."
 systemctl daemon-reload
 
-# 5. 验证删除结果
-echo "验证删除结果..."
-for service in iscsi.service rpcbind.service vmtoolsd.service starlight-agent.service qemu-guest-agent.service rsyslog.service syslog.socket; do
+# 5. 验证删除和日志禁用结果
+echo "验证删除和日志禁用结果..."
+for service in iscsi.service rpcbind.service vmtoolsd.service starlight-agent.service qemu-guest-agent.service rsyslog.service syslog.socket systemd-journald.service; do
   if systemctl status "$service" >/dev/null 2>&1; then
     echo "警告：$service 仍存在，请检查！"
   else
@@ -104,6 +131,12 @@ for service in iscsi.service rpcbind.service vmtoolsd.service starlight-agent.se
   fi
 done
 
+# 检查日志目录是否为空
+if [ -z "$(ls -A /var/log)" ]; then
+  echo "/var/log 已清空且锁定，不再生成日志。"
+else
+  echo "警告：/var/log 未完全清空，请检查！"
+fi
 # 删除脚本自身
 rm -- "$0"
-echo "清理完成！请检查系统状态并重启以确认（sudo reboot）。"
+echo "清理完成！请重启系统以确认（sudo reboot）。"
