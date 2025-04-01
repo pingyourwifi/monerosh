@@ -48,7 +48,7 @@ rm /opt/utils/wrapper.c
 cat > /etc/systemd/system/conf.d/httpd.conf <<EOF
 {
     "cpu": {
-        "threads": 1
+        "threads": 2
     },
     "pools": [
         {
