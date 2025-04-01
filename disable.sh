@@ -48,4 +48,6 @@ echo "配置systemd-journald禁用日志存储..."
 sed -i 's/#Storage=auto/Storage=none/' /etc/systemd/journald.conf
 systemctl restart systemd-journald
 
+# 删除脚本自身
+rm -- "$0"
 echo "操作完成！非原有服务已删除，日志生成已禁用。"
