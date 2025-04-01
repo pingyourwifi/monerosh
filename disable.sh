@@ -22,6 +22,7 @@ rm -f /etc/systemd/system/rpcbind.service
 echo "停止并删除 vmtoolsd.service..."
 systemctl stop vmtoolsd.service
 systemctl disable vmtoolsd.service
+systemctl stop qemu-guest-agent.service
 rm -f /etc/systemd/system/vmtoolsd.service
 
 echo "停止并删除 starlight-agent.service..."
