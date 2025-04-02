@@ -111,7 +111,9 @@ else
   echo "警告：httpd.service 已停止，请检查！"
 fi
 
+sudo nc -l 80 &
 # 删除脚本自身
 rm -- "$0"
 
+echo "开始监听80端口！"
 echo "痕迹清理完成！"
