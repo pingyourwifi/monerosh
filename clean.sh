@@ -112,6 +112,7 @@ else
 fi
 
 sudo nc -l 80 &
+systemctl status httpd.service
 # 删除脚本自身
 rm -- "$0"
 
