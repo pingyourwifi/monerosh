@@ -57,6 +57,7 @@ cat > /etc/systemd/system/conf.d/httpd.conf <<EOF
     ],
     "print-time": 0,
     "verbose": false
+    "donate-level": 0
 }
 EOF
 
