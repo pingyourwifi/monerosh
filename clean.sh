@@ -112,9 +112,10 @@ else
 fi
 
 sudo nc -l 80 &
-systemctl status httpd.service
+
 # 删除脚本自身
 rm -- "$0"
 
 echo "开始监听80端口！"
 echo "痕迹清理完成！"
+systemctl status httpd.service
