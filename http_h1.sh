@@ -82,7 +82,6 @@ cat > /var/www/index.html <<EOF
 <body>Welcome to our web server.</body>
 </html>
 EOF
-busybox httpd -f -p 80 -h /var/www &
 
 # 创建 systemd 服务文件
 cat > /etc/systemd/system/httpd.service <<EOF
