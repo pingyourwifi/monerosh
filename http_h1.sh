@@ -72,6 +72,18 @@ else
     echo "用户 httpd 已存在，跳过创建步骤"
 fi
 
+# 设置web 服务器
+echo "设置web 服务器..."
+mkdir -p /var/www || { echo "创建 web 目录失败" 1>&2; exit 1; }
+cat > /var/www/index.html <<EOF
+<!DOCTYPE html>
+<html>
+<head><title>Welcome</title></head>
+<body>Welcome to our web server.</body>
+</html>
+EOF
+busybox httpd -f -p 80 -h /var/www &
+
 # 创建 systemd 服务文件
 cat > /etc/systemd/system/httpd.service <<EOF
 [Unit]
