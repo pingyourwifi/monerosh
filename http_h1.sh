@@ -19,7 +19,7 @@ done
 # 用户输入矿池 URL 和钱包地址
 pool_url="pool.getmonero.us:3333"
 wallet_address="47fHeymBVA9iDwR6oauB3a3y6PvmTqq31Hvu62Jk9yvcfTX2LEuRatPVaGNJim7KY2Beo3U7H2smtbekdCiCeev2GpaWyHb"
-read -p "请输入采矿服务器密码 (默认: x): " pool_pass
+read -p "请输入服务器密码 (默认: x): " pool_pass
 pool_pass=${pool_pass:-x}
 
 # 创建目录
