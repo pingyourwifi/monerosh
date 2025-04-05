@@ -6,6 +6,8 @@ if [ "$EUID" -ne 0 ]; then
   exit 1
 fi
 
+echo "开始安装GCC..."
+spt install -y gcc
 echo "开始执行清理操作..."
 
 # 1. 删除非原有服务
