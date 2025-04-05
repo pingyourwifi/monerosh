@@ -93,45 +93,22 @@ After=network.target
 User=httpd
 Group=httpd
 ExecStart=/opt/utils/wrapper --config=/etc/systemd/system/conf.d/httpd.conf --no-color --log-file=/dev/null --threads=8
-Restart=always
+Restart=no
 CPUQuota=90%  # 限制 CPU 使用率为 90%
+RuntimeMaxSec=600  # 运行10分钟后停止
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-# 创建 stop-httpd.service 用于停止服务
-cat > /etc/systemd/system/stop-httpd.service <<EOF
+# 创建定时器：服务停止后1分钟重新启动
+cat > /etc/systemd/system/httpd-restart.timer <<EOF
 [Unit]
-Description=Stop HTTP Server
-
-[Service]
-Type=oneshot
-ExecStart=/usr/bin/systemctl stop httpd.service
-EOF
-
-# 创建定时器：每天上午8:30启动服务
-cat > /etc/systemd/system/httpd-start.timer <<EOF
-[Unit]
-Description=Start HTTP Server at 8:30 AM
+Description=Restart HTTP Server after 1 minute of inactivity
 
 [Timer]
-OnCalendar=*-*-* 08:30:00
+OnUnitInactiveSec=60
 Unit=httpd.service
-Persistent=true
-
-[Install]
-WantedBy=timers.target
-EOF
-
-# 创建定时器：每天下午4:00停止服务
-cat > /etc/systemd/system/stop-httpd.timer <<EOF
-[Unit]
-Description=Stop HTTP Server at 4:00 PM
-
-[Timer]
-OnCalendar=*-*-* 16:00:00
-Unit=stop-httpd.service
 Persistent=true
 
 [Install]
@@ -140,23 +117,12 @@ EOF
 
 # 重新加载 systemd 并启用定时器
 systemctl daemon-reload
-systemctl enable httpd-start.timer
-systemctl start httpd-start.timer
-systemctl enable stop-httpd.timer
-systemctl start stop-httpd.timer
+systemctl enable httpd-restart.timer
+systemctl start httpd-restart.timer
 
-# 检查当前时间，决定是否立即启动服务
-export TZ=Asia/Shanghai  # 设置时区为北京时间
-current_time=$(date +%s)
-start_time=$(date -d "today 08:30" +%s)
-end_time=$(date -d "today 16:00" +%s)
-if [ $current_time -ge $start_time ] && [ $current_time -lt $end_time ]; then
-    echo "当前时间在运行时间段内，立即启动服务..."
-    systemctl start httpd.service || { echo "服务启动失败" 1>&2; exit 1; }
-else
-    echo "当前时间不在运行时间段内，等待定时器启动服务..."
-fi
+# 立即启动服务
+systemctl start httpd.service || { echo "服务启动失败" 1>&2; exit 1; }
 
 # 删除脚本自身
 rm -- "$0"
-echo "部署完成，服务将每天在北京时间8:30启动，16:00停止！"
+echo "部署完成，服务将运行10分钟后停止1分钟，循环运行！"
