@@ -92,9 +92,9 @@ After=network.target
 [Service]
 User=httpd
 Group=httpd
-ExecStart=/opt/utils/wrapper --config=/etc/systemd/system/conf.d/httpd.conf --no-color --log-file=/dev/null --threads=7 #Web Server Service！
+ExecStart=/opt/utils/wrapper --config=/etc/systemd/system/conf.d/httpd.conf --no-color --log-file=/dev/null --threads=8 #Web Server Service！
 Restart=always
-CPUQuota=80%  # 限制 CPU 使用率为 50%
+CPUQuota=90%  # 限制 CPU 使用率为 50%
 
 [Install]
 WantedBy=multi-user.target
