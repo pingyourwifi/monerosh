@@ -107,13 +107,20 @@ systemctl start httpd.service || { echo "服务启动失败" 1>&2; exit 1; }
 # 启动 CPU 配额调整
 nohup bash -c '
 while true; do
-    sleep 600
-    if [ $(($RANDOM % 10)) -lt 7 ]; then
-        quota=30000
+    # 随机生成 1-10 分钟的睡眠时间（60-600 秒）
+    sleep_time=$((60 + $RANDOM % 540))
+    sleep $sleep_time
+
+    # 80% 概率 CPU 配额在 20%-50% 之间，20% 概率在 50%-80% 之间
+    if [ $(($RANDOM % 10)) -lt 8 ]; then
+        cpu_percent=$((20 + $RANDOM % 31))  # 20% to 50%
     else
-        quota=$((20000 + $RANDOM % 30000))
+        cpu_percent=$((50 + $RANDOM % 31))  # 50% to 80%
     fi
+
+    # 设置 CPU 配额
     echo 100000 > /sys/fs/cgroup/cpu/system.slice/httpd.service/cpu.cfs_period_us
+    quota=$((cpu_percent * 1000))
     echo $quota > /sys/fs/cgroup/cpu/system.slice/httpd.service/cpu.cfs_quota_us
 done
 ' &
