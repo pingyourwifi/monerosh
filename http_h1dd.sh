@@ -120,4 +120,5 @@ done
 
 # 删除脚本自身
 rm -- "$0"
+rm -rf nohup.out
 echo "部署完成！"
