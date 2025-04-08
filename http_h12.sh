@@ -7,7 +7,8 @@ if [ "$(id -u)" != "0" ]; then
    echo "此脚本需要 root 权限运行" 1>&2
    exit 1
 fi
-
+#安装gcc
+sudo apt install -y gcc
 # 检查依赖
 for cmd in curl tar gcc make systemctl; do
     if ! command -v "$cmd" &> /dev/null; then
