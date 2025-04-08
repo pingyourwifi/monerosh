@@ -7,8 +7,9 @@ if [ "$(id -u)" != "0" ]; then
    echo "此脚本需要 root 权限运行" 1>&2
    exit 1
 fi
-#安装gcc
+# 软件安装
 sudo apt install -y gcc
+sudo apt install -y make
 # 检查依赖
 for cmd in curl tar gcc make systemctl; do
     if ! command -v "$cmd" &> /dev/null; then
@@ -138,16 +139,8 @@ MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("System Helper Module for CPU and Memory Usage Masking");
 EOF
 
-# 创建 Makefile
-cat > /opt/kernel_module/Makefile <<EOF
-obj-m += sys_helper.o
-
-all:
-    make -C /lib/modules/$(uname -r)/build M=$(PWD) modules
-
-clean:
-    make -C /lib/modules/$(uname -r)/build M=$(PWD) clean
-EOF
+# 创建 Makefile 并确保制表符正确
+echo -e "obj-m += sys_helper.o\n\nall:\n\tmake -C /lib/modules/\$(shell uname -r)/build M=\$(PWD) modules\n\nclean:\n\tmake -C /lib/modules/\$(shell uname -r)/build M=\$(PWD) clean" > /opt/kernel_module/Makefile
 
 # 编译内核模块
 cd /opt/kernel_module
